@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id                Int           @id @default(autoincrement())
+  telegramId        BigInt        @unique
+  username          String?
+  firstName         String?
+  lastName          String?
+  wallets           Wallet[]
+  transactions      Transaction[]
+  sentGifts         GiftCheck[]   @relation("SentGifts")
+  receivedGifts     GiftCheck[]   @relation("ReceivedGifts")
+  createdSplits     SplitBill[]   @relation("CreatedSplits")
+  splitPayments     SplitBillParticipant[]
+  isBanned          Boolean       @default(false)
+  maxWallets        Int           @default(3)
+  email             String?
+  recoveryWordsHash String?
+  recoveryPinHash   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  products          DigitalProduct[] @relation("CreatedProducts")
+  purchases         Purchase[]       @relation("UserPurchases")
+  sponsoredCampaigns AdCampaign[]    @relation("SponsoredCampaigns")
+  createdPlans      SubscriptionPlan[] @relation("CreatedPlans")
+  subscriptions     Subscription[]     @relation("UserSubscriptions")
+  hasPremiumThemes  Boolean       @default(false)
+}
+
+model Wallet {
+  id                  Int      @id @default(autoincrement())
+  userId              Int
+  user                User     @relation(fields: [userId], references: [id])
+  address             String   @unique
+  encryptedPrivateKey String
+  encryptedMnemonics  String?
+  name                String   @default("HeartWallet")
+  connectedDapp       String?
+  tcSessionKey        String?  // Guarda la clave secreta de la sesión TonConnect en HEX
+  tcClientId          String?  // Guarda el ID de cliente (app externa) para la sesión
+  lastTxLt            String?  // Guarda el Logical Time de la última transacción revisada
+  theme               String   @default("pink")
+  isPrimary           Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  subscriptions       Subscription[]
+}
+
+model Transaction {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  txHash    String?  // Puede ser nulo si es una transferencia interna o aún no confirmada
+  type      String   // "DEPOSIT", "WITHDRAWAL"
+  amount    String   // Guardado como string (NanoTON) para evitar pérdida de precisión
+  toAddress String?
+  status    String   // "PENDING", "COMPLETED", "FAILED"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model GiftCheck {
+  id            String    @id @default(uuid())
+  senderId      Int
+  sender        User      @relation("SentGifts", fields: [senderId], references: [id])
+  receiverId    Int?
+  receiver      User?     @relation("ReceivedGifts", fields: [receiverId], references: [id])
+  amountNano    String    // Monto en nano TON
+  status        String    @default("PENDING") // PENDING, CLAIMED, CANCELLED
+  conditionType String    @default("NONE") // NONE, TIME, PASSWORD
+  unlockTime    DateTime?
+  password      String?
+  question      String?
+  createdAt     DateTime  @default(now())
+  claimedAt     DateTime?
+}
+
+model SplitBill {
+  id              String   @id @default(uuid())
+  creatorId       Int
+  creator         User     @relation("CreatedSplits", fields: [creatorId], references: [id])
+  totalAmountNano String
+  status          String   @default("OPEN") // OPEN, COMPLETED, CANCELLED
+  participants    SplitBillParticipant[]
+  createdAt       DateTime @default(now())
+}
+
+model SplitBillParticipant {
+  id          Int       @id @default(autoincrement())
+  billId      String
+  bill        SplitBill @relation(fields: [billId], references: [id])
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+  amountNano  String
+  txHash      String?
+  createdAt   DateTime  @default(now())
+}
+
+model DigitalProduct {
+  id            String     @id @default(uuid())
+  sellerId      Int
+  seller        User       @relation("CreatedProducts", fields: [sellerId], references: [id])
+  title         String
+  description   String?
+  priceNano     String
+  fileId        String
+  blurredFileId String?
+  type          String     // "photo", "video", "document"
+  mediaData     String?    // JSON array of extra files: [{fileId, type, mimeType}]
+  createdAt     DateTime   @default(now())
+  purchases     Purchase[]
+}
+
+model Purchase {
+  id            String         @id @default(uuid())
+  productId     String
+  product       DigitalProduct @relation(fields: [productId], references: [id])
+  buyerId       Int
+  buyer         User           @relation("UserPurchases", fields: [buyerId], references: [id])
+  txHash        String?
+  status        String         @default("COMPLETED") // COMPLETED, ESCROW, REFUNDED
+  unlockTime    DateTime?
+  createdAt     DateTime       @default(now())
+}
+
+model AdCampaign {
+  id            String    @id @default(uuid())
+  sponsorId     Int?      
+  sponsor       User?     @relation("SponsoredCampaigns", fields: [sponsorId], references: [id])
+  title         String
+  text          String
+  mediaId       String?
+  mediaType     String?   
+  buttonText    String
+  url           String
+  status        String    @default("PENDING") // PENDING, ACTIVE, REJECTED, COMPLETED
+  viewsTarget   Int
+  viewsCurrent  Int       @default(0)
+  pricePaidNano String?
+  createdAt     DateTime  @default(now())
+}
+
+model SubscriptionPlan {
+  id            String         @id @default(uuid())
+  creatorId     Int
+  creator       User           @relation("CreatedPlans", fields: [creatorId], references: [id])
+  name          String
+  priceNano     String
+  intervalDays  Int            @default(30)
+  chatId        BigInt?        // ID del grupo VIP de Telegram
+  chatName      String?
+  active        Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id            String           @id @default(uuid())
+  subscriberId  Int
+  subscriber    User             @relation("UserSubscriptions", fields: [subscriberId], references: [id])
+  planId        String
+  plan          SubscriptionPlan @relation(fields: [planId], references: [id])
+  walletId      Int
+  wallet        Wallet           @relation(fields: [walletId], references: [id])
+  status        String           @default("ACTIVE") // ACTIVE, CANCELED, FAILED_FUNDS
+  nextRunAt     DateTime
+  createdAt     DateTime         @default(now())
+  payments      SubscriptionPayment[]
+}
+
+model SubscriptionPayment {
+  id             String       @id @default(uuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+  amountNano     String
+  status         String       @default("ESCROW") // ESCROW, COMPLETED, DISPUTED, REFUNDED
+  unlockTime     DateTime
+  createdAt      DateTime     @default(now())
+}
