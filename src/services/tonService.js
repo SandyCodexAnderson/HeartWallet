@@ -1,6 +1,6 @@
 const { TonClient, WalletContractV4, internal, Address, beginCell } = require('@ton/ton');
 const { mnemonicNew, mnemonicToPrivateKey, mnemonicValidate } = require('@ton/crypto');
-const { config } = require('../config/env');
+const { config, isStakingConfigured } = require('../config/env');
 const { decryptPrivateKey } = require('./cryptoService');
 
 const isMainnet = config.tonNetwork === 'mainnet';
@@ -214,10 +214,17 @@ async function getNftHistoryAndValue(nftAddress) {
 }
 
 const TON_API_URL = 'https://tonapi.io/v2';
-const TSTON_MASTER = 'EQC98_qAmNEptUtPc7W6xdHh_ZHrBUFpw5Ft_IzNU20QAJav';
-const TONSTAKERS_POOL = 'EQCkWxfyhAkim3g2DjKQQg8T5P4g-Q1-K_jErGcDJZ4i-vqR';
+const TSTON_MASTER = config.tsTonMasterAddress;
+const TONSTAKERS_POOL = config.tonstakersPoolAddress;
+
+function ensureStakingConfigured() {
+    if (!isStakingConfigured()) {
+        throw new Error('Staking is not configured. Set TONSTAKERS_POOL_ADDRESS and TSTON_MASTER_ADDRESS in .env.');
+    }
+}
 
 async function getTsTonPrice() {
+    if (!isStakingConfigured()) return 1.13;
     try {
         const url = `${TON_API_URL}/rates?tokens=${TSTON_MASTER}&currencies=ton`;
         const response = await fetch(url);
@@ -238,6 +245,9 @@ async function getTsTonPrice() {
  * Retorna un objeto: { apy, tonUsd, tsTonRatio }
  */
 async function getRealStakingApy() {
+    if (!isStakingConfigured()) {
+        return { apy: '4.8', tonUsd: '3.00', tsTonRatio: '1.13' };
+    }
     try {
         // 1. Obtener datos de tsTON (precio en TON + cambio 30d)
         const rateRes = await fetch(`${TON_API_URL}/rates?tokens=${TSTON_MASTER}&currencies=ton,usd`);
@@ -294,6 +304,7 @@ async function getTsTonBalance(addressStr) {
 }
 
 async function stakeTon(encryptedPrivateKey, amountNano) {
+    ensureStakingConfigured();
     // Tonstakers requires 1.0 TON extra to cover internal gas fees.
     // It subtracts 1.0 TON from msg_value for gas, stakes the rest, and refunds the unused gas.
     const GAS_NANO = 1000000000n; // 1.0 TON extra for contract gas
