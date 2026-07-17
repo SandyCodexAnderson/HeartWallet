@@ -1,7 +1,7 @@
 const { Scenes, Markup } = require('telegraf');
 const { prisma } = require('../db/prisma');
 const { mnemonicNew } = require('@ton/crypto');
-const { hashData } = require('../services/cryptoService');
+const { hashData, normalizeRecoveryWords, recoveryLookupHash } = require('../services/cryptoService');
 
 const backupWalletWizard = new Scenes.WizardScene(
     'BACKUP_WALLET_SCENE',
@@ -87,8 +87,9 @@ const backupWalletWizard = new Scenes.WizardScene(
         const pin = text;
         const words = ctx.scene.session.words;
         
-        const wordsString = words.join(' ');
+        const wordsString = normalizeRecoveryWords(words.join(' '));
         const wordsHash = hashData(wordsString);
+        const wordsLookup = recoveryLookupHash(wordsString);
         const pinHash = hashData(pin);
 
         try {
@@ -96,6 +97,7 @@ const backupWalletWizard = new Scenes.WizardScene(
                 where: { telegramId: BigInt(ctx.from.id) },
                 data: {
                     recoveryWordsHash: wordsHash,
+                    recoveryWordsLookup: wordsLookup,
                     recoveryPinHash: pinHash
                 }
             });

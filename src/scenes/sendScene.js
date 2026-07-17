@@ -2,7 +2,7 @@ const { Scenes, Markup } = require('telegraf');
 const { Address, toNano } = require('@ton/ton');
 const { sendTon } = require('../services/tonService');
 const { prisma } = require('../db/prisma');
-const { hashData } = require('../services/cryptoService');
+const { verifyHash } = require('../services/cryptoService');
 const { config } = require('../config/env');
 
 const sendWizard = new Scenes.WizardScene(
@@ -170,7 +170,7 @@ const sendWizard = new Scenes.WizardScene(
             return sendError(ctx, "❌ PIN inválido. Debe ser de 4 dígitos. Intenta de nuevo:");
         }
 
-        if (hashData(text) !== ctx.scene.session.expectedPinHash) {
+        if (!verifyHash(text, ctx.scene.session.expectedPinHash)) {
             return sendError(ctx, "❌ **PIN Incorrecto**. Tu transacción ha sido bloqueada. Intenta de nuevo:");
         }
 

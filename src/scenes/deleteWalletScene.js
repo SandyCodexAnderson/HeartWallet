@@ -151,8 +151,8 @@ const deleteWalletWizard = new Scenes.WizardScene(
 
         const user = await prisma.user.findUnique({ where: { telegramId: BigInt(ctx.from.id) } });
         
-        const { hashData } = require('../services/cryptoService');
-        if (user.recoveryPinHash && hashData(text) !== user.recoveryPinHash) {
+        const { verifyHash } = require('../services/cryptoService');
+        if (user.recoveryPinHash && !verifyHash(text, user.recoveryPinHash)) {
             const buttons = [[Markup.button.callback('❌ Cancelar', 'del_cancel')]];
             await ctx.telegram.editMessageText(ctx.chat.id, ctx.scene.session.promptId || ctx.callbackQuery?.message?.message_id, null, "❌ **PIN Incorrecto**. Operación bloqueada. Intenta de nuevo:", { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
             return;

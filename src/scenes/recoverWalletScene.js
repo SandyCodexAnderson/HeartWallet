@@ -1,10 +1,6 @@
 const { Scenes, Markup } = require('telegraf');
 const { prisma } = require('../db/prisma');
-const crypto = require('crypto');
-
-function hashData(data) {
-    return crypto.createHash('sha256').update(data).digest('hex');
-}
+const { hashData, legacyHashData, normalizeRecoveryWords, recoveryLookupHash, verifyHash } = require('../services/cryptoService');
 
 const recoverWalletWizard = new Scenes.WizardScene(
     'RECOVER_WALLET_SCENE',
@@ -25,7 +21,7 @@ const recoverWalletWizard = new Scenes.WizardScene(
             return handleStart(ctx);
         }
 
-        const text = ctx.message?.text?.trim().toLowerCase();
+        const text = normalizeRecoveryWords(ctx.message?.text);
         if (ctx.message) await ctx.deleteMessage(ctx.message.message_id).catch(()=>{});
 
         if (text === '/cancelar') {
@@ -43,7 +39,7 @@ const recoverWalletWizard = new Scenes.WizardScene(
             return;
         }
 
-        ctx.scene.session.wordsString = words.join(' ');
+        ctx.scene.session.wordsString = normalizeRecoveryWords(words.join(' '));
         const buttons = [[Markup.button.callback('❌ Cancelar', 'cancel_scene')]];
         await ctx.telegram.editMessageText(ctx.chat.id, ctx.scene.session.promptId, null, "🔐 Ahora, por favor ingresa el **PIN de 4 dígitos** que escogiste cuando creaste el respaldo:", { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
         return ctx.wizard.next();
@@ -74,17 +70,28 @@ const recoverWalletWizard = new Scenes.WizardScene(
         const pin = text;
         const wordsString = ctx.scene.session.wordsString;
 
-        const wordsHash = hashData(wordsString);
-        const pinHash = hashData(pin);
-
         try {
-            const oldUser = await prisma.user.findFirst({
+            const lookup = recoveryLookupHash(wordsString);
+            const legacyWordsHash = legacyHashData(wordsString);
+
+            const candidates = await prisma.user.findMany({
                 where: {
-                    recoveryWordsHash: wordsHash,
-                    recoveryPinHash: pinHash
+                    OR: [
+                        { recoveryWordsLookup: lookup },
+                        {
+                            recoveryWordsLookup: null,
+                            recoveryWordsHash: legacyWordsHash,
+                        },
+                    ],
+                    recoveryPinHash: { not: null },
                 },
                 include: { wallets: true }
             });
+
+            const oldUser = candidates.find((candidate) =>
+                verifyHash(wordsString, candidate.recoveryWordsHash) &&
+                verifyHash(pin, candidate.recoveryPinHash)
+            );
 
             if (!oldUser) {
                 const buttons = [[Markup.button.callback('⬅️ Volver', 'cancel_scene')]];

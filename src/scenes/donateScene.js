@@ -1,7 +1,7 @@
 const { Scenes, Markup } = require('telegraf');
 const { prisma } = require('../db/prisma');
 const { sendTon, getBalance } = require('../services/tonService');
-const { hashData } = require('../services/cryptoService');
+const { verifyHash } = require('../services/cryptoService');
 const { config } = require('../config/env');
 const { toNano } = require('@ton/ton');
 
@@ -188,7 +188,7 @@ const donateScene = new Scenes.WizardScene(
                 }
 
                 const user = await prisma.user.findUnique({ where: { telegramId: BigInt(ctx.from.id) } });
-                if (hashData(pin) !== user.recoveryPinHash) {
+                if (!verifyHash(pin, user.recoveryPinHash)) {
                     await ctx.telegram.editMessageText(ctx.chat.id, promptId, null,
                         `❌ *PIN Incorrecto.* Intenta de nuevo:`,
                         { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('❌ Cancelar', 'dn_cancel')]]) }
