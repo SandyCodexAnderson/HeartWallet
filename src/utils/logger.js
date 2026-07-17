@@ -10,7 +10,12 @@ const LOG_DIR = path.join(__dirname, '../../logs');
 
 // Crear directorio si no existe
 if (!fs.existsSync(LOG_DIR)) {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
+    fs.mkdirSync(LOG_DIR, { recursive: true, mode: 0o700 });
+}
+try {
+    fs.chmodSync(LOG_DIR, 0o700);
+} catch(e) {
+    console.error('[Logger] Error ajustando permisos del directorio de logs:', e.message);
 }
 
 const FILES = {
@@ -19,13 +24,41 @@ const FILES = {
     success: path.join(LOG_DIR, 'success.json'),
 };
 
+const SENSITIVE_KEY_RE = /(token|secret|key|password|passphrase|pin|mnemonic|seed|private|recovery|encryptedprivatekey|walletencryptedkey)/i;
+const SENSITIVE_TEXT_RE = /([0-9a-f]{64,}|(?:\b[a-z]+\b[\s,;:._-]+){11,23}\b[a-z]+\b|\b\d{4,8}\b)/i;
+
+function redactValue(key, value) {
+    if (SENSITIVE_KEY_RE.test(String(key || ''))) return '[REDACTED]';
+
+    if (typeof value === 'string') {
+        return SENSITIVE_TEXT_RE.test(value) ? '[REDACTED]' : value;
+    }
+
+    if (Array.isArray(value)) return value.map((item) => redactValue(key, item));
+
+    if (value && typeof value === 'object') {
+        const redacted = {};
+        for (const [childKey, childValue] of Object.entries(value)) {
+            redacted[childKey] = redactValue(childKey, childValue);
+        }
+        return redacted;
+    }
+
+    return value;
+}
+
+function redactDetails(details = {}) {
+    return redactValue('details', details) || {};
+}
+
 // Inicializar archivos si no existen o están vacíos
 for (const [key, file] of Object.entries(FILES)) {
-    if (!fs.existsSync(file)) fs.writeFileSync(file, '[]', 'utf8');
+    if (!fs.existsSync(file)) fs.writeFileSync(file, '[]', { encoding: 'utf8', mode: 0o600 });
     try {
         JSON.parse(fs.readFileSync(file, 'utf8'));
+        fs.chmodSync(file, 0o600);
     } catch(e) {
-        fs.writeFileSync(file, '[]', 'utf8');
+        fs.writeFileSync(file, '[]', { encoding: 'utf8', mode: 0o600 });
     }
 }
 
@@ -36,7 +69,7 @@ function appendToFile(filePath, entry) {
         arr.push(entry);
         // Mantener máximo 5000 entradas por archivo
         if (arr.length > 5000) arr.splice(0, arr.length - 5000);
-        fs.writeFileSync(filePath, JSON.stringify(arr, null, 2), 'utf8');
+        fs.writeFileSync(filePath, JSON.stringify(arr, null, 2), { encoding: 'utf8', mode: 0o600 });
     } catch(e) {
         // Si falla no crashear el bot
         console.error('[Logger] Error escribiendo log:', e.message);
@@ -48,7 +81,7 @@ function buildEntry(level, action, details = {}) {
         timestamp: new Date().toISOString(),
         level,
         action,
-        ...details,
+        ...redactDetails(details),
     };
 }
 
@@ -98,7 +131,9 @@ function telegramLogMiddleware() {
     return async (ctx, next) => {
         const user = ctx.from?.username || ctx.from?.first_name || 'unknown';
         const userId = ctx.from?.id;
-        const action = ctx.callbackQuery?.data || ctx.message?.text || ctx.updateType;
+        const action = ctx.callbackQuery?.data
+            || (ctx.message?.text ? '[text-message]' : null)
+            || ctx.updateType;
 
         logInfo('TELEGRAM_UPDATE', {
             user,
@@ -135,4 +170,4 @@ function telegramLogMiddleware() {
     };
 }
 
-module.exports = { logSuccess, logError, logInfo, telegramLogMiddleware, LOG_DIR };
+module.exports = { logSuccess, logError, logInfo, telegramLogMiddleware, LOG_DIR, __redactDetails: redactDetails };
